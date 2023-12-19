@@ -4,6 +4,11 @@ VisualStudioVersion = 17.9.34407.89
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SpaceHog", "SpaceHog.vcxproj", "{2ACEC17B-A8A7-471F-BDA8-993CD8896399}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{33DE1A56-9D3F-4B35-8A09-AE2B020282A3}"
+	ProjectSection(SolutionItems) = preProject
+		README.md = README.md
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Win32 = Debug|Win32
