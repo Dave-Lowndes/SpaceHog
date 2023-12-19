@@ -2,10 +2,12 @@
 //
 
 #include "stdafx.h"
+#include <winioctl.h>
+#include <optional>
+#include <windowsx.h>
+
 #include "SpaceHog.h"
 #include "SpaceHogDlg.h"
-
-#include <windowsx.h>
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -161,12 +163,12 @@ void CSpaceHogDlg::OnPaint()
 		SendMessage(WM_ICONERASEBKGND, (WPARAM) dc.GetSafeHdc(), 0);
 
 		// Center icon in client rectangle
-		int cxIcon = GetSystemMetrics(SM_CXICON);
-		int cyIcon = GetSystemMetrics(SM_CYICON);
+		const int cxIcon = GetSystemMetrics(SM_CXICON);
+		const int cyIcon = GetSystemMetrics(SM_CYICON);
 		CRect rect;
 		GetClientRect(&rect);
-		int x = (rect.Width() - cxIcon + 1) / 2;
-		int y = (rect.Height() - cyIcon + 1) / 2;
+		const int x = (rect.Width() - cxIcon + 1) / 2;
+		const int y = (rect.Height() - cyIcon + 1) / 2;
 
 		// Draw the icon
 		dc.DrawIcon(x, y, m_hIcon);
@@ -188,26 +190,17 @@ HCURSOR CSpaceHogDlg::OnQueryDragIcon()
 
 void CSpaceHogDlg::OnOK() 
 {
-	// TODO: Add extra validation here
-	BOOL bTrans;
-
-	LARGE_INTEGER uSpace;
 	CString sVal;
 	GetDlgItemText( IDC_SIZE_LEFT, sVal );
+
+	std::optional<LARGE_INTEGER> uSpace;
+
 	if ( sVal.GetLength() != 0 )
 	{
-		bTrans = true;
-		uSpace.QuadPart = _ttoi64( sVal );
-	}
-	else
-	{
-		bTrans = false;
-		uSpace.QuadPart = 0;	// Prevent compiler warning
+		uSpace = LARGE_INTEGER{ .QuadPart = _ttoi64( sVal ) };
 	}
 
-//	uSpace.QuadPart = ::GetDlgItemInt( m_hWnd, IDC_SIZE_LEFT, &bTrans, FALSE );
-
-	if ( bTrans )
+	if ( uSpace.has_value() )
 	{
 		TCHAR szPath[_MAX_PATH];
 
@@ -216,15 +209,16 @@ void CSpaceHogDlg::OnOK()
 		szPath[2] = _T('\\');
 		szPath[3] = _T('\0');
 
-		UINT dt = GetDriveType( szPath );
+		const UINT dt = GetDriveType( szPath );
 
 		bool bContinue;
 
 		/* Warn about doing it on network and CD-ROM drives */
-		if ( ( dt == DRIVE_CDROM ) || ( dt == DRIVE_REMOTE ) )
+		if ( ( dt == DRIVE_CDROM ) || ( dt == DRIVE_REMOTE ) || ( dt == DRIVE_REMOVABLE ))
 		{
-			bContinue = IDYES == AfxMessageBox( _T("You've selected a CD/DVD drive, or a network drive.\n\n")
-				_T("Are you sure you want to do this?"), MB_YESNO | MB_DEFBUTTON2 );
+			bContinue = IDYES == AfxMessageBox( _T("You've selected a CD/DVD, network, or removable drive. ")
+									_T("Operations on these may fail or take a very long time.\n\n")
+									_T("Are you sure you want to do this?"), MB_YESNO | MB_DEFBUTTON2 );
 		}
 		else
 		{
@@ -235,37 +229,52 @@ void CSpaceHogDlg::OnOK()
 		{
 			lstrcpy( &szPath[3], HOGFILENAME );
 
-			/* Delete the existing temporary file */
+			/* Delete any existing temporary file */
 			DeleteFile( szPath );
+
+			DWORD dwErr{ NO_ERROR };	// Init to prevent compiler warning
 
 			/* Do we want to create a file of this size, or try to leave this amount of space on disk? */
 			if ( IsDlgButtonChecked( IDC_REMAIN ) == BST_CHECKED )
 			{
 				/* Temporarily botch the file name to leave just the drive */
-				TCHAR chTmp = szPath[2];
+				const TCHAR chTmp = szPath[2];
 				szPath[2] = _T('\0');
 
 				/* Find how much disk space we have */
-				ULARGE_INTEGER CallerFree, TotBytes, TotFree;
-				GetDiskFreeSpaceEx( szPath, &CallerFree, &TotBytes, &TotFree );
-				uSpace.QuadPart = TotFree.QuadPart - uSpace.QuadPart;
+				ULARGE_INTEGER TotFree;
+				if ( GetDiskFreeSpaceEx( szPath, NULL, NULL, &TotFree ) )
+				{
+					// This is the size of file we need to create to leave the requested amount of space
+					uSpace->QuadPart = TotFree.QuadPart - uSpace->QuadPart;
+				}
+				else
+				{
+					// If we can't get the free space, we can't do this
+					dwErr = GetLastError();
+					uSpace.reset();
+				}
 
+				// Restore the file name
 				szPath[2] = chTmp;
 			}
 
-			bool bOK = false;
-
-			DWORD dwErr = 0;	// Init to prevent compiler warning
+			if ( uSpace.has_value() )
 			{
 				/* This could take a long time if the file is large */
 				CWaitCursor wait;
 
 				/* Create/Overwrite the temporary hog file on the root of the drive */
-				HANDLE hFile = CreateFile( szPath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL );
+				const HANDLE hFile = CreateFile( szPath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL );
+
+				bool bOK = false;
 
 				if ( hFile != INVALID_HANDLE_VALUE )
 				{
-					if ( -1 != SetFilePointer( hFile, uSpace.LowPart, &uSpace.HighPart, FILE_BEGIN ) )
+					// Try to make it a sparse file
+					bOK = DeviceIoControl( hFile, FSCTL_SET_SPARSE, NULL, 0, NULL, 0, /*&dwTemp*/NULL, NULL );
+
+					if ( -1 != SetFilePointer( hFile, uSpace->LowPart, &uSpace->HighPart, FILE_BEGIN ) )
 					{
 						if ( SetEndOfFile( hFile ) )
 						{
@@ -285,7 +294,7 @@ void CSpaceHogDlg::OnOK()
 				}
 			}
 
-			if ( !bOK )
+			if ( dwErr != NO_ERROR )
 			{
 				LPVOID lpMsgBuf;
 				FormatMessage( 
@@ -311,7 +320,7 @@ void CSpaceHogDlg::OnOK()
 	}
 	else
 	{
-		AfxMessageBox( _T("Invalid Space Value") );
+		AfxMessageBox( _T("Invalid space value") );
 	}
 }
 
@@ -320,30 +329,35 @@ void CSpaceHogDlg::OnDelete()
 {
 	CWaitCursor wait;
 
+	// Allow the maximum size for the drive letters (4 characters each + null terminator)
 	TCHAR szDrives[4*26 + 1];
-	GetLogicalDriveStrings( sizeof( szDrives ), szDrives );
-	LPCTSTR pDrive = szDrives;
-
-	while ( pDrive[0] != _T('\0') )
+	if ( GetLogicalDriveStrings( _countof( szDrives ) - 1, szDrives ) )
 	{
-		UINT dt = GetDriveType( pDrive );
+		LPCTSTR pDrive = szDrives;
 
-		/* Skip network and CD-ROM drives */
-		if ( ( dt == DRIVE_CDROM ) || ( dt == DRIVE_REMOTE ) )
+		// Fill in the file name part of the path
+		TCHAR szPath[_MAX_PATH];
+		lstrcpy( &szPath[1], _T(":\\") HOGFILENAME);
+
+		while ( pDrive[0] != _T( '\0' ) )
 		{
+			const UINT dt = GetDriveType( pDrive );
+
+			// Skip CD/DVD drives
+			// Why did I originally skip network drives?
+			if ( (dt == DRIVE_CDROM) /*|| (dt == DRIVE_REMOTE)*/ )
+			{
+			}
+			else
+			{
+				// Copy the drive letter onto the file name path
+				szPath[0] = pDrive[0];
+
+				DeleteFile( szPath );
+			}
+
+			/* Next drive */
+			pDrive += sizeof( "C:\\" );
 		}
-		else
-		{
-			TCHAR szPath[_MAX_PATH];
-
-			/* Create the hog file path name */
-			lstrcpy( szPath, pDrive );
-			lstrcpy( &szPath[3], HOGFILENAME );
-
-			DeleteFile( szPath );
-		}
-
-		/* Next drive */
-		pDrive += sizeof( "C:\\" );
 	}
 }

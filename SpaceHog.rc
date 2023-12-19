@@ -53,7 +53,7 @@ BEGIN
     CONTROL         "",IDC_STATIC,"Static",SS_BLACKRECT | SS_SUNKEN,7,63,218,1
     LTEXT           "SpaceHog will try to create a file (named SpaceHog.tmp) in the root of the selected disk drive, leaving either the chosen amount of free disk space, or a file of that size.",IDC_STATIC,7,70,218,26
     LTEXT           "On systems with UAC enabled, the file may be written to the user's virtual root - C:\\Users\\<username>\\AppData\\Local\\VirtualStore. Run SpaceHog elevated (as Administrator) to use the real root.",IDC_STATIC,7,100,218,26
-    LTEXT           "Delete All will delete the hog files on all drives except network and CD/DVD drives.",IDC_STATIC,7,131,218,19
+    LTEXT           "Delete All will try to delete the hog files on all drives except CD/DVD drives.",IDC_STATIC,7,131,218,19
 END
 
 
