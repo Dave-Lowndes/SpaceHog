@@ -186,6 +186,40 @@ HCURSOR CSpaceHogDlg::OnQueryDragIcon()
 	return (HCURSOR) m_hIcon;
 }
 
+static bool CheckOKToContinue( LPCTSTR szPath )
+{
+	const UINT dt = GetDriveType( szPath );
+
+	// Check if the drive is NTFS since removable NTFS drives are fast to
+	// create files regardless of size.
+	// This should probably check some specific flag rather than the file
+	// system name. However I don't know what flag that may be!
+	bool bDriveIsFastToCreateFile = false;
+	{
+		TCHAR szFileSystemName[MAX_PATH + 1];
+		if ( GetVolumeInformation( szPath, NULL, 0, NULL, NULL, NULL, szFileSystemName, _countof( szFileSystemName ) ) )
+		{
+			bDriveIsFastToCreateFile = (lstrcmpi( szFileSystemName, _T( "NTFS" ) ) == 0);
+		}
+	}
+
+	bool bContinue;
+
+	/* Warn about doing it on network and CD-ROM drives (and non-fast removable drives) */
+	if ( (dt == DRIVE_CDROM) || (dt == DRIVE_REMOTE) || ((dt == DRIVE_REMOVABLE) && !bDriveIsFastToCreateFile) )
+	{
+		bContinue = IDYES == AfxMessageBox( _T( "You've selected a CD/DVD, network, or removable drive. " )
+			_T( "Operations on these may fail or take a very long time.\n\n" )
+			_T( "Are you sure you want to do this?" ), MB_YESNO | MB_DEFBUTTON2 );
+	}
+	else
+	{
+		bContinue = true;
+	}
+
+	return bContinue;
+}
+
 #define HOGFILENAME _T("SpaceHog.tmp")
 
 void CSpaceHogDlg::OnOK() 
@@ -209,23 +243,7 @@ void CSpaceHogDlg::OnOK()
 		szPath[2] = _T('\\');
 		szPath[3] = _T('\0');
 
-		const UINT dt = GetDriveType( szPath );
-
-		bool bContinue;
-
-		/* Warn about doing it on network and CD-ROM drives */
-		if ( ( dt == DRIVE_CDROM ) || ( dt == DRIVE_REMOTE ) || ( dt == DRIVE_REMOVABLE ))
-		{
-			bContinue = IDYES == AfxMessageBox( _T("You've selected a CD/DVD, network, or removable drive. ")
-									_T("Operations on these may fail or take a very long time.\n\n")
-									_T("Are you sure you want to do this?"), MB_YESNO | MB_DEFBUTTON2 );
-		}
-		else
-		{
-			bContinue = true;
-		}
-
-		if ( bContinue )
+		if ( CheckOKToContinue( szPath ) )
 		{
 			lstrcpy( &szPath[3], HOGFILENAME );
 
@@ -272,7 +290,10 @@ void CSpaceHogDlg::OnOK()
 				if ( hFile != INVALID_HANDLE_VALUE )
 				{
 					// Try to make it a sparse file
-					bOK = DeviceIoControl( hFile, FSCTL_SET_SPARSE, NULL, 0, NULL, 0, /*&dwTemp*/NULL, NULL );
+					// Although this works, sparse files don't contribute to
+					// the disk space, so for this tool, this is the wrong
+					// thing to do
+// 					bOK = DeviceIoControl( hFile, FSCTL_SET_SPARSE, NULL, 0, NULL, 0, NULL, NULL );
 
 					if ( -1 != SetFilePointer( hFile, uSpace->LowPart, &uSpace->HighPart, FILE_BEGIN ) )
 					{
