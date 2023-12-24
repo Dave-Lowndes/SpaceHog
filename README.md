@@ -1,5 +1,5 @@
 # SpaceHog V1.2
-This program is useful for testing applications against low-disk space situations.
+This program is useful for testing applications in low disk space situations.
 
 ![SpaceHog screenshot](screenshot.png)
 
