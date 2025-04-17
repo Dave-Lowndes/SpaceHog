@@ -107,7 +107,7 @@ BOOL CSpaceHogDlg::OnInitDialog()
 	if (pSysMenu != NULL)
 	{
 		CString strAboutMenu;
-		strAboutMenu.LoadString(IDS_ABOUTBOX);
+		std::ignore = strAboutMenu.LoadString(IDS_ABOUTBOX);
 		if (!strAboutMenu.IsEmpty())
 		{
 			pSysMenu->AppendMenu(MF_SEPARATOR);
@@ -224,6 +224,7 @@ static bool CheckOKToContinue( LPCTSTR szPath )
 
 void CSpaceHogDlg::OnOK() 
 {
+	// Value is handled as text as the max value from GetDlgItemInt is a UINT
 	CString sVal;
 	GetDlgItemText( IDC_SIZE_LEFT, sVal );
 
@@ -277,15 +278,13 @@ void CSpaceHogDlg::OnOK()
 				szPath[2] = chTmp;
 			}
 
-			if ( uSpace.has_value() )
+			if ( uSpace.has_value() && ( (*uSpace).QuadPart >= 0 ) )
 			{
 				/* This could take a long time if the file is large */
 				CWaitCursor wait;
 
 				/* Create/Overwrite the temporary hog file on the root of the drive */
 				const HANDLE hFile = CreateFile( szPath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL );
-
-				bool bOK = false;
 
 				if ( hFile != INVALID_HANDLE_VALUE )
 				{
@@ -295,24 +294,34 @@ void CSpaceHogDlg::OnOK()
 					// thing to do
 // 					bOK = DeviceIoControl( hFile, FSCTL_SET_SPARSE, NULL, 0, NULL, 0, NULL, NULL );
 
-					if ( -1 != SetFilePointer( hFile, uSpace->LowPart, &uSpace->HighPart, FILE_BEGIN ) )
+					if ( SetFilePointerEx( hFile, *uSpace, nullptr, FILE_BEGIN ) )
 					{
-						if ( SetEndOfFile( hFile ) )
+						if ( !SetEndOfFile( hFile ) )
 						{
-							bOK = true;
+							dwErr = GetLastError();
 						}
 					}
-
-					if ( !CloseHandle( hFile ) )
+					else
 					{
-						bOK = false;
+						dwErr = GetLastError();
+					}
+
+					CloseHandle( hFile );
+
+					if ( dwErr != NO_ERROR )
+					{
+						// Delete the file if we failed to set the size
+						DeleteFile( szPath );
 					}
 				}
-
-				if ( !bOK )
+				else
 				{
 					dwErr = GetLastError();
 				}
+			}
+			else
+			{
+				AfxMessageBox( L"Insufficient disk space", MB_ICONINFORMATION );
 			}
 
 			if ( dwErr != NO_ERROR )
